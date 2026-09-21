@@ -100,10 +100,7 @@ def main() -> None:
             print(f"- {field}: {issue['msg']}")
         return
 
-    client = OpenAI(
-        base_url=str(settings.base_url),
-        api_key=settings.llm_api_key.get_secret_value(),
-    )
+    client = LLMClient(settings)
 
     print(f"Окружение: {settings.app_env}")
     print(f"Модель: {settings.model}")
