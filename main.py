@@ -1,15 +1,34 @@
-import os
 from time import perf_counter
 
 import openai
-from dotenv import load_dotenv
 from openai import OpenAI
+from pydantic import ValidationError
 
-BASE_URL = "http://localhost:11434/v1"
-MODEL = "gpt-oss:20b"
+from config import Settings
+
+SYSTEM_INSTRUCTION = (
+    "Ты помогаешь оператору службы поддержки. "
+    "Кратко пересказывай обращение одним предложением. "
+    "Используй только факты из обращения. "
+    "Не придумывай суммы, даты, причины и действия. "
+    "Если данных недостаточно, прямо сообщай об этом."
+)
 
 
-def summarize_request(client: OpenAI, user_text: str) -> None:
+def build_messages(user_text: str) -> list[dict[str, str]]:
+    return [
+        {
+            "role": "system",
+            "content": SYSTEM_INSTRUCTION,
+        },
+        {
+            "role": "user",
+            "content": f"Обращение:\n{user_text}",
+        },
+    ]
+
+
+def summarize_request(client: OpenAI, user_text: str, settings: Settings) -> None:
     """Кратко пересказывает обращение и печатает метрики запроса."""
     text = user_text.strip()
     if not text:
@@ -20,17 +39,10 @@ def summarize_request(client: OpenAI, user_text: str) -> None:
 
     try:
         response = client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {
-                    "role": "user",
-                    "content": (
-                        "Сформулируй краткое содержание обращения в одном "
-                        "предложении. Не добавляй факты, которых нет в тексте.\n\n"
-                        f"Обращение: {text}"
-                    ),
-                }
-            ],
+            model=settings.model,
+            messages=build_messages(text),
+            temperature=settings.temperature,
+            max_completion_tokens=settings.max_output_tokens,
         )
     except openai.AuthenticationError:
         print("Ошибка авторизации: проверьте LLM_API_KEY.")
@@ -77,17 +89,25 @@ def summarize_request(client: OpenAI, user_text: str) -> None:
 
 
 def main() -> None:
-    load_dotenv()
+    try:
+        settings = Settings()
+    except ValidationError as error:
+        print("Ошибка конфигурации:")
+        for issue in error.errors():
+            field = ".".join(str(part) for part in issue["loc"])
+            print(f"- {field}: {issue['msg']}")
+        return
 
-    token = os.getenv("LLM_API_KEY")
-    if not token:
-        raise SystemExit(
-            "Не найдена переменная LLM_API_KEY. " "Проверьте файл .env в корне проекта."
-        )
+    client = OpenAI(
+        base_url=str(settings.base_url),
+        api_key=settings.llm_api_key.get_secret_value(),
+    )
 
-    client = OpenAI(base_url=BASE_URL, api_key=token)
+    print(f"Окружение: {settings.app_env}")
+    print(f"Модель: {settings.model}")
+
     user_text = input("Введите текст обращения: ")
-    summarize_request(client, user_text)
+    summarize_request(client, user_text, settings)
 
 
 if __name__ == "__main__":
