@@ -1,10 +1,10 @@
 from time import perf_counter
 
 import openai
-from openai import OpenAI
 from pydantic import ValidationError
 
-from config import Settings
+from app.config import Settings
+from app.llm.client import LLMClient, LLMResult
 
 SYSTEM_INSTRUCTION = (
     "Ты помогаешь оператору службы поддержки. "
@@ -28,7 +28,17 @@ def build_messages(user_text: str) -> list[dict[str, str]]:
     ]
 
 
-def summarize_request(client: OpenAI, user_text: str, settings: Settings) -> None:
+def print_usage(result: LLMResult) -> None:
+    if result.total_tokens is None:
+        print("Провайдер не вернул статистику токенов.")
+        return
+
+    print(f"Входные токены: {result.prompt_tokens}")
+    print(f"Выходные токены: {result.completion_tokens}")
+    print(f"Всего токенов: {result.total_tokens}")
+
+
+def summarize_request(client: LLMClient, user_text: str, settings: Settings) -> None:
     """Кратко пересказывает обращение и печатает метрики запроса."""
     text = user_text.strip()
     if not text:
@@ -38,12 +48,7 @@ def summarize_request(client: OpenAI, user_text: str, settings: Settings) -> Non
     started_at = perf_counter()
 
     try:
-        response = client.chat.completions.create(
-            model=settings.model,
-            messages=build_messages(text),
-            temperature=settings.temperature,
-            max_completion_tokens=settings.max_output_tokens,
-        )
+        result = client.generate(build_messages(text))
     except openai.AuthenticationError:
         print("Ошибка авторизации: проверьте LLM_API_KEY.")
         return
@@ -69,23 +74,20 @@ def summarize_request(client: OpenAI, user_text: str, settings: Settings) -> Non
         return
 
     elapsed_seconds = perf_counter() - started_at
-    choice = response.choices[0]
-    answer = choice.message.content
+
+    answer = result.text
 
     print("\nРезультат:")
     print(answer or "Модель не вернула текстовый ответ")
 
     print("\nМетрики:")
-    print(f"Модель: {response.model}")
-    print(f"Завершение: {choice.finish_reason}")
+    print(f"Модель: {result.model}")
+    print(f"Завершение: {result.finish_reason}")
     print(f"Время: {elapsed_seconds:.2f} с")
 
-    if response.usage is not None:
-        print(f"Входные токены: {response.usage.prompt_tokens}")
-        print(f"Выходные токены: {response.usage.completion_tokens}")
-        print(f"Всего токенов: {response.usage.total_tokens}")
+    print_usage(result)
 
-    print(f"ID ответа: {response.id}")
+    print(f"ID ответа: {result.response_id}")
 
 
 def main() -> None:
