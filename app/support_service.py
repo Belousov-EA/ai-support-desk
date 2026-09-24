@@ -4,11 +4,22 @@ from time import perf_counter
 from app.llm.client import LLMClient, Message
 from app.llm.errors import LLMClientError
 
-SYSTEM_INSTRUCTION = (
-    "Ты помощник службы поддержки. "
-    "Кратко перескажи обращение одним предложением. "
-    "Не добавляй факты, которых нет в обращении."
-)
+DEVELOPER_INSTRUCTION = """
+Ты помогаешь оператору службы поддержки кратко пересказывать
+обращения клиентов.
+
+Цель:
+Сформулируй основную проблему клиента одним предложением.
+
+Правила:
+- Используй только факты, явно указанные в обращении.
+- Если они указаны, сохраняй номер заказа, дату и название товара.
+- Не добавляй советы, решения, обещания и оценки.
+- Если деталь отсутствует или неясна, опусти ее.
+
+Формат ответа:
+Одно самостоятельное предложение без заголовка, списка и вступления.
+""".strip()
 
 
 class SupportServiceError(RuntimeError):
@@ -70,8 +81,8 @@ class SupportService:
     def _build_messages(user_text: str) -> list[Message]:
         return [
             {
-                "role": "system",
-                "content": SYSTEM_INSTRUCTION,
+                "role": "developer",
+                "content": DEVELOPER_INSTRUCTION,
             },
             {
                 "role": "user",
