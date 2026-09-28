@@ -3,17 +3,17 @@ from time import perf_counter
 
 from app.llm.client import LLMClient, Message
 from app.llm.errors import LLMClientError
-from app.prompts.support_summary import SUPPORT_SUMMARY_PROMPT
+from app.prompts.support_chat import SUPPORT_CHAT_PROMPT
 
-DEVELOPER_INSTRUCTION = SUPPORT_SUMMARY_PROMPT.render(response_language="русском")
+CHAT_INSTRUCTION = SUPPORT_CHAT_PROMPT.render()
 
 
-class SupportServiceError(RuntimeError):
+class ChatServiceError(RuntimeError):
     pass
 
 
 @dataclass(frozen=True)
-class SupportSummary:
+class ChatReply:
     text: str
     model: str
     prompt_id: str
@@ -25,41 +25,41 @@ class SupportSummary:
     response_id: str
 
 
-class SupportService:
+class ChatService:
     def __init__(self, llm_client: LLMClient) -> None:
         self._llm_client = llm_client
 
-    def summarize(self, user_text: str) -> SupportSummary:
+    def reply(self, user_text: str) -> ChatReply:
         text = user_text.strip()
         if not text:
-            raise SupportServiceError("Обращение не должно быть пустым.")
+            raise ChatServiceError("Сообщение не должно быть пустым.")
+
+        messages = self._build_messages(text)
 
         started_at = perf_counter()
         try:
-            llm_result = self._llm_client.generate(self._build_messages(text))
+            llm_result = self._llm_client.generate(messages)
         except LLMClientError as error:
-            raise SupportServiceError(
+            raise ChatServiceError(
                 f"Не удалось получить ответ модели: {error}"
             ) from error
         elapsed_seconds = perf_counter() - started_at
 
         if llm_result.finish_reason == "length":
-            raise SupportServiceError(
-                "Ответ модели остановлен из-за ограничения длины."
-            )
+            raise ChatServiceError("Ответ остановлен из-за ограничения длины.")
         if llm_result.finish_reason != "stop":
-            raise SupportServiceError(
-                "Модель не вернула готовое резюме. "
+            raise ChatServiceError(
+                "Модель не вернула готовый ответ. "
                 f"Причина завершения: {llm_result.finish_reason}."
             )
 
-        summary = self._validate_summary(llm_result.text)
+        reply_text = self._validate_reply(llm_result.text)
 
-        return SupportSummary(
-            text=summary,
+        return ChatReply(
+            text=reply_text,
             model=llm_result.model,
-            prompt_id=SUPPORT_SUMMARY_PROMPT.prompt_id,
-            prompt_version=SUPPORT_SUMMARY_PROMPT.version,
+            prompt_id=SUPPORT_CHAT_PROMPT.prompt_id,
+            prompt_version=SUPPORT_CHAT_PROMPT.version,
             elapsed_seconds=elapsed_seconds,
             prompt_tokens=llm_result.prompt_tokens,
             completion_tokens=llm_result.completion_tokens,
@@ -72,21 +72,21 @@ class SupportService:
         return [
             {
                 "role": "developer",
-                "content": DEVELOPER_INSTRUCTION,
+                "content": CHAT_INSTRUCTION,
             },
             {
                 "role": "user",
-                "content": (f"<customer_request>\n{user_text}\n</customer_request>"),
+                "content": (f"<customer_message>\n{user_text}\n</customer_message>"),
             },
         ]
 
     @staticmethod
-    def _validate_summary(summary: str | None) -> str:
-        if summary is None:
-            raise SupportServiceError("Модель не вернула текст резюме.")
+    def _validate_reply(reply: str | None) -> str:
+        if reply is None:
+            raise ChatServiceError("Модель не вернула текст ответа.")
 
-        cleaned_summary = summary.strip()
-        if not cleaned_summary:
-            raise SupportServiceError("Модель вернула пустое резюме.")
+        cleaned_reply = reply.strip()
+        if not cleaned_reply:
+            raise ChatServiceError("Модель вернула пустой ответ.")
 
-        return cleaned_summary
+        return cleaned_reply
