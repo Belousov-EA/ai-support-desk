@@ -1,5 +1,9 @@
 from pydantic import ValidationError
 
+from app.chat_history import (
+    SlidingWindowHistory,
+    TokenCounter,
+)
 from app.chat_service import ChatService
 from app.config import Settings
 from app.console import run_console
@@ -17,7 +21,15 @@ def main() -> None:
         return
 
     llm_client = LLMClient(settings)
-    chat_service = ChatService(llm_client)
+    token_counter = TokenCounter()
+    history_policy = SlidingWindowHistory(
+        token_counter=token_counter,
+        input_token_budget=settings.chat_input_token_budget,
+    )
+    chat_service = ChatService(
+        llm_client=llm_client,
+        history_policy=history_policy,
+    )
 
     try:
         run_console(
